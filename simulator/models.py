@@ -17,6 +17,7 @@ class Order:
     order_type: OrderType
     price: float
     quantity: int
+    asset_id: str = "A" # Move to the end
     timestamp: float = field(default_factory=time.time)
     filled_quantity: int = 0
 
@@ -25,7 +26,7 @@ class Order:
         return self.quantity - self.filled_quantity
 
     def __repr__(self):
-        return f"Order(id={self.order_id}, {self.side.value}, {self.order_type.value}, p={self.price}, q={self.quantity}, filled={self.filled_quantity})"
+        return f"Order(id={self.order_id}, asset={self.asset_id}, {self.side.value}, {self.order_type.value}, p={self.price}, q={self.quantity}, filled={self.filled_quantity})"
 
 @dataclass
 class Trade:

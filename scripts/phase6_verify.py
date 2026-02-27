@@ -46,8 +46,8 @@ def verify_regime_adaptation():
     # 1. Simulate data
     prices, spreads, volumes, shift, end_shift = simulate_regime_shifts()
     
-    # 2. Run Regime Detector
-    detector = RegimeDetector(window_size=10, threshold=2.0)
+    # 2. Run Regime Detector (No threshold argument anymore)
+    detector = RegimeDetector(window_size=10)
     detected_regimes = []
     
     for i in range(len(prices)-1):
@@ -55,9 +55,6 @@ def verify_regime_adaptation():
         detected_regimes.append(regime.value)
 
     # 3. Compare Execution Performance (Simulation)
-    # Strategy 1: Static TWAP
-    # Strategy 2: Adaptive (TWAP in Low Vol, Aggressive AC in High Vol)
-    
     total_qty = 1000
     horizon = 100
     
@@ -73,8 +70,6 @@ def verify_regime_adaptation():
         
         # We simulate the cost along the generated price path
         for t in range(horizon):
-            # The schedule determines how much to execute at each step
-            # schedule_func is a function that returns the trade size for step t
             trade_qty = schedule_func(t)
             
             # Local market conditions
@@ -91,7 +86,7 @@ def verify_regime_adaptation():
     # Static TWAP execution
     twap_cost = run_strategy_sim(lambda t: twap_sched[t])
     
-    # Adaptive execution: switch to aggressive schedule when high vol is detected
+    # Adaptive execution
     def adaptive_sched_func(t):
         if t < len(detected_regimes) and detected_regimes[t] == 1:
             return ac_agg_sched[t]

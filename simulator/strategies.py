@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from .models import Side
 
 class ExecutionStrategy:
@@ -70,25 +70,10 @@ class AlmgrenChrissStrategy(ExecutionStrategy):
         self.volatility = volatility
 
     def get_schedule(self) -> np.ndarray:
-        """
-        Optimal schedule for Almgren-Chriss.
-        nj = (sinh(kappa * (T - tj)) / sinh(kappa * T)) * X
-        kappa = sqrt(lambda * gamma / eta) * sigma
-        """
         X = self.total_quantity
         T = self.horizon
-        # Simplified kappa calculation
-        # kappa^2 = (lambda * sigma^2) / (eta/tau) where tau is time step
-        # Assuming tau = 1 for simplicity
         kappa_sq = (self.risk_aversion * (self.volatility**2)) / self.eta
         kappa = np.sqrt(kappa_sq)
-        
-        schedule = []
-        remaining = X
-        
-        # tj = j, from 0 to T-1
-        # We want the trajectory xj (remaining quantity at time j)
-        # Then trade nj = xj-1 - xj
         
         trajectories = []
         for j in range(T + 1):
@@ -100,16 +85,58 @@ class AlmgrenChrissStrategy(ExecutionStrategy):
                 xj = X * (num / den)
             trajectories.append(xj)
             
-        # Trades are differences between points in trajectory
         trades = []
         for i in range(T):
             trade = int(round(trajectories[i] - trajectories[i+1]))
             trades.append(trade)
             
-        # Final adjustment for rounding
         schedule = np.array(trades)
         diff = X - np.sum(schedule)
         if diff != 0:
-            schedule[-1] += diff # Adjust last trade
+            schedule[-1] += diff
             
         return schedule
+
+class PredatoryHFTAgent:
+    """
+    Predatory HFT agent that monitors LOB imbalance and detects large orders.
+    If a persistent imbalance is detected (e.g., from a large execution agent), 
+    the predatory agent "front-runs" by placing orders at the same price.
+    """
+    def __init__(self, detection_window: int = 5, detection_threshold: float = 2.0):
+        self.window = detection_window
+        self.threshold = detection_threshold
+        self.imbalance_history = []
+        self.is_detecting = False
+
+    def update(self, bids: List[Tuple[float, int]], asks: List[Tuple[float, int]]) -> Optional[Tuple[Side, int, float]]:
+        """
+        Updates agent state and returns an order if a large trader is detected.
+        """
+        if not bids or not asks:
+            return None
+            
+        total_bid = sum(q for p, q in bids[:3]) # Top 3 levels
+        total_ask = sum(q for p, q in asks[:3])
+        
+        imbalance = total_bid / max(total_ask, 1e-6)
+        self.imbalance_history.append(imbalance)
+        
+        if len(self.imbalance_history) > self.window:
+            self.imbalance_history.pop(0)
+            
+        avg_imbalance = np.mean(self.imbalance_history)
+        
+        # Detection: Large imbalance (> threshold) suggests a large buyer
+        if avg_imbalance > self.threshold:
+            self.is_detecting = True
+            best_bid = bids[0][0]
+            return Side.BUY, 50, best_bid
+            
+        elif avg_imbalance < (1.0 / self.threshold):
+            self.is_detecting = True
+            best_ask = asks[0][0]
+            return Side.SELL, 50, best_ask
+            
+        self.is_detecting = False
+        return None

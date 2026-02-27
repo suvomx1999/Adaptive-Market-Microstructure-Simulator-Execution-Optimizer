@@ -6,10 +6,12 @@ from .models import Order, Side, OrderType
 from .lob import OrderBook
 from .generators import OrderFlowGenerator, MarketRegime
 from .impact import MarketImpactModel
+from .sentiment import SentimentGenerator
 
 class TradingEnv(gym.Env):
     """
     Gym environment for optimal execution.
+    Includes sentiment and multi-asset capabilities.
     """
     def __init__(self, 
                  total_quantity: int = 1000, 
@@ -21,11 +23,11 @@ class TradingEnv(gym.Env):
         self.horizon = horizon
         self.target_side = target_side
         
-        # State: [Spread, Imbalance, Remaining Inventory %, Time Remaining %]
+        # State: [Spread, Imbalance, Remaining Inventory %, Time Remaining %, Sentiment]
         # Normalized between 0 and 1 (or -1 and 1)
         self.observation_space = spaces.Box(
-            low=np.array([0, -1, 0, 0]), 
-            high=np.array([1, 1, 1, 1]), 
+            low=np.array([0, -1, 0, 0, -1]), 
+            high=np.array([1, 1, 1, 1, 1]), 
             dtype=np.float32
         )
         
@@ -37,6 +39,7 @@ class TradingEnv(gym.Env):
         self.lob = OrderBook()
         self.generator = OrderFlowGenerator(base_lambda=10.0)
         self.impact_model = MarketImpactModel()
+        self.sentiment_gen = SentimentGenerator()
         
         self.reset()
 
@@ -50,6 +53,10 @@ class TradingEnv(gym.Env):
         self.arrival_price = 100.0 # Initial mid-price
         self.last_mid = self.arrival_price
         
+        # Reset sentiment
+        self.sentiment_gen = SentimentGenerator()
+        self.current_sentiment = self.sentiment_gen.update()
+        
         # Warm up the book with some initial orders
         for _ in range(50):
             _, order, is_cancel = self.generator.generate_event(self.arrival_price)
@@ -59,7 +66,7 @@ class TradingEnv(gym.Env):
         return self._get_obs(), {}
 
     def _get_obs(self):
-        mid = self.lob.get_best_bid() or self.arrival_price # Simplified mid
+        mid = self.lob.get_best_bid() or self.arrival_price
         best_bid = self.lob.get_best_bid() or (mid - 0.01)
         best_ask = self.lob.get_best_ask() or (mid + 0.01)
         
@@ -75,23 +82,32 @@ class TradingEnv(gym.Env):
             min(spread * 100, 1.0), # Normalized spread
             imbalance,
             self.remaining_qty / self.total_quantity,
-            1.0 - (self.current_step / self.horizon)
+            1.0 - (self.current_step / self.horizon),
+            self.current_sentiment
         ], dtype=np.float32)
         
         return obs
 
     def step(self, action):
-        # 1. Background market activity (Simulate a few events)
+        # 1. Update Sentiment
+        self.current_sentiment = self.sentiment_gen.update()
+        
+        # Adjust generator parameters based on sentiment
+        # Positive sentiment -> More buy orders (higher lambda for buys)
+        # This is a simplified influence
+        if self.current_sentiment > 0.5:
+            self.generator.market_order_prob = 0.2 # Aggressive buying
+        else:
+            self.generator.market_order_prob = 0.1
+
+        # 2. Background market activity
         mid = (self.lob.get_best_bid() + self.lob.get_best_ask()) / 2.0 if self.lob.get_best_bid() and self.lob.get_best_ask() else self.arrival_price
         for _ in range(5):
             _, order, is_cancel = self.generator.generate_event(mid)
-            if is_cancel:
-                # Cancel random order if possible (simplified)
-                pass
-            elif order:
+            if not is_cancel and order:
                 self.lob.add_order(order)
 
-        # 2. Execute agent action
+        # 3. Execute agent action
         frac = self.action_map[action]
         trade_qty = int(self.remaining_qty * frac)
         
@@ -101,19 +117,15 @@ class TradingEnv(gym.Env):
             
         reward = 0
         if trade_qty > 0:
-            # Use impact model for execution price
-            # Estimate liquidity at top levels
             bids, asks = self.lob.get_snapshot(3)
             liquidity = sum(v for p, v in (asks if self.target_side == Side.BUY else bids))
-            
             current_mid = (self.lob.get_best_bid() + self.lob.get_best_ask()) / 2.0 if self.lob.get_best_bid() and self.lob.get_best_ask() else mid
             
             exec_price, temp_impact, perm_impact = self.impact_model.get_execution_price(
                 trade_qty, self.target_side, current_mid, liquidity
             )
             
-            # Implementation Shortfall reward (negative cost)
-            # Cost per share relative to arrival price
+            # Implementation Shortfall reward
             cost_per_share = (exec_price - self.arrival_price) if self.target_side == Side.BUY else (self.arrival_price - exec_price)
             reward = -cost_per_share * (trade_qty / self.total_quantity)
             
@@ -121,12 +133,11 @@ class TradingEnv(gym.Env):
             self.remaining_qty -= trade_qty
             self.impact_model.update_state(trade_qty, self.target_side)
             
-        # Time penalty / Leftover penalty
+        # 4. Finalize step
         self.current_step += 1
         done = (self.current_step >= self.horizon) or (self.remaining_qty <= 0)
         
         if done and self.remaining_qty > 0:
-            # Heavy penalty for leftover inventory
             reward -= 10.0 * (self.remaining_qty / self.total_quantity)
             
         return self._get_obs(), reward, done, False, {}

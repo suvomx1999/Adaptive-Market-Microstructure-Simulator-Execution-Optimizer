@@ -6,50 +6,73 @@ class MarketState(Enum):
     LOW_VOL_HIGH_LIQ = 0
     HIGH_VOL_LOW_LIQ = 1
 
-class RegimeDetector:
-    def __init__(self, window_size: int = 20, threshold: float = 1.5):
-        self.window_size = window_size
-        self.threshold = threshold # Sensitivity for change detection
-        self.vol_history = []
-        self.liq_history = []
-        self.current_regime = MarketState.LOW_VOL_HIGH_LIQ
+class HMMRegimeDetector:
+    """
+    Gaussian Hidden Markov Model for Regime Detection (Manual Implementation).
+    States: 0 = Low Volatility, 1 = High Volatility
+    """
+    def __init__(self):
+        # Initial state probabilities
+        self.pi = np.array([0.9, 0.1])
         
-        # Benchmarks (Baseline for Low Vol)
-        self.baseline_vol = None
-        self.baseline_liq = None
+        # Transition probabilities (high self-transition)
+        self.A = np.array([[0.98, 0.02],
+                          [0.05, 0.95]])
+        
+        # Emission parameters (Means and Std Devs for log-returns)
+        self.means = np.array([0.0, 0.0])
+        self.stds = np.array([0.002, 0.01]) # Low vs High vol
+        
+        self.history = []
+        self.probs = self.pi.copy()
+
+    def update(self, log_return: float) -> int:
+        """
+        Bayesian update of state probabilities (Viterbi-style filtered probability).
+        """
+        # 1. Prediction step: P(x_t | y_{t-1}) = sum_i P(x_t | x_{t-1}=i) * P(x_{t-1}=i | y_{t-1})
+        pred_probs = self.probs @ self.A
+        
+        # 2. Update step (Likelihood)
+        likelihoods = np.array([
+            (1.0 / (self.stds[i] * np.sqrt(2 * np.pi))) * 
+            np.exp(-0.5 * ((log_return - self.means[i]) / self.stds[i])**2)
+            for i in [0, 1]
+        ])
+        
+        # 3. Posterior
+        new_probs = pred_probs * likelihoods
+        sum_probs = np.sum(new_probs)
+        
+        if sum_probs > 0:
+            self.probs = new_probs / sum_probs
+        else:
+            # Numerical stability: reset if probabilities collapse
+            self.probs = self.pi.copy()
+            
+        return np.argmax(self.probs)
+
+class RegimeDetector:
+    def __init__(self, window_size: int = 20):
+        self.window_size = window_size
+        self.price_history = []
+        self.hmm = HMMRegimeDetector()
+        self.current_regime = MarketState.LOW_VOL_HIGH_LIQ
 
     def update(self, mid_price: float, spread: float, volume: int) -> MarketState:
-        """
-        Updates detector with latest market data.
-        Returns the detected regime.
-        """
-        self.vol_history.append(mid_price)
-        self.liq_history.append(volume / max(spread, 1e-6)) # Proxy for liquidity
-        
-        if len(self.vol_history) > self.window_size:
-            self.vol_history.pop(0)
-            self.liq_history.pop(0)
+        self.price_history.append(mid_price)
+        if len(self.price_history) < 2:
+            return self.current_regime
             
-        if len(self.vol_history) < self.window_size:
-            return self.current_regime
-
-        # Calculate local metrics
-        returns = np.diff(self.vol_history) / self.vol_history[:-1]
-        local_vol = np.std(returns)
-        local_liq = np.mean(self.liq_history)
+        # Calculate log-return
+        log_ret = np.log(self.price_history[-1] / self.price_history[-2])
         
-        # Initialize baselines if not set
-        if self.baseline_vol is None:
-            self.baseline_vol = local_vol
-            self.baseline_liq = local_liq
-            return self.current_regime
-
-        # Detection logic: Bayesian-style shift detection
-        # If local vol is significantly higher than baseline, or liquidity is lower
-        vol_ratio = local_vol / max(self.baseline_vol, 1e-9)
-        liq_ratio = local_liq / max(self.baseline_liq, 1e-9)
+        # HMM Update
+        state_idx = self.hmm.update(log_ret)
         
-        if vol_ratio > self.threshold or liq_ratio < (1.0 / self.threshold):
+        # Change point detection (Simple Bayesian Online approach)
+        # If the high vol probability exceeds a threshold
+        if state_idx == 1:
             self.current_regime = MarketState.HIGH_VOL_LOW_LIQ
         else:
             self.current_regime = MarketState.LOW_VOL_HIGH_LIQ
