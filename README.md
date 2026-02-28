@@ -18,6 +18,45 @@ The platform features a modern, institutional-grade visual analytics dashboard b
 
 ---
 
+## 📊 Simulation & Verification Results
+
+The framework's fidelity and performance are validated across 12 distinct development phases. Below are key visual outputs from the verification suite:
+
+### 1. Market Dynamics & Regime Detection
+Real-time identification of volatility shifts using **Gaussian HMM** and **BOCPD**.
+![Regime Detection](phase6_regime_verification.png)
+
+### 2. Stochastic Order Flow & Impact
+Modeling volatility clustering using **Hawkes Processes** and verifying the **Square Root Law** for market impact.
+<p align="center">
+  <img src="phase7_3_hawkes_verification.png" width="45%" />
+  <img src="phase3_impact_verification.png" width="45%" />
+</p>
+
+### 3. Distributional RL (QR-PPO)
+Visualization of the learned value distribution, enabling explicit **CVaR (Tail Risk)** optimization.
+![Distributional RL](phase11_dist_rl_verification.png)
+
+### 4. Strategy Comparison
+Benchmarking the **Regime-Adaptive** agent against TWAP, VWAP, and Almgren-Chriss.
+![Strategy Comparison](phase4_strategy_comparison.png)
+
+### 5. Adverse Selection & Sentiment
+Detecting **Predatory HFT** footprints and adapting to **Sentiment Shocks** (OU-Process).
+<p align="center">
+  <img src="phase8_predatory_verification.png" width="45%" />
+  <img src="phase10_sentiment_verification.png" width="45%" />
+</p>
+
+### 6. Multi-Asset Lead-Lag & Infrastructure
+Statistical verification of lead-lag relationships and verified sub-10μs FIX latency.
+<p align="center">
+  <img src="phase9_correlation_verification.png" width="45%" />
+  <img src="phase12_fix_latency_verification.png" width="45%" />
+</p>
+
+---
+
 ## 🏗️ Architecture Overview
 
 The framework is built on a multi-layered architecture designed for sub-millisecond event processing and strategic adaptation.
