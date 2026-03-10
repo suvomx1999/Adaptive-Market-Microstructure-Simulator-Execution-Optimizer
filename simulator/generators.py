@@ -79,7 +79,23 @@ class OrderFlowGenerator:
             self.hawkes.mu = self.base_lambda
             self.hawkes.alpha = 0.6
 
+    def trigger_liquidity_shock(self, duration: int = 50):
+        """Simulates a sudden drop in liquidity and spike in volatility"""
+        old_regime = self.current_regime
+        self.set_regime(MarketRegime.HIGH_VOLATILITY)
+        self.base_lambda *= 0.2 # Drastic drop in baseline liquidity
+        # Logic to revert after duration would need a counter in generate_event
+        self._shock_counter = duration
+        self._old_base_lambda = self.base_lambda / 0.2
+
     def generate_event(self, mid_price: float) -> Tuple[float, Optional[Order], bool]:
+        # Handle liquidity shock recovery
+        if hasattr(self, '_shock_counter') and self._shock_counter > 0:
+            self._shock_counter -= 1
+            if self._shock_counter == 0:
+                self.base_lambda = self._old_base_lambda
+                self.set_regime(MarketRegime.LOW_VOLATILITY)
+
         if self.use_hawkes:
             dt = self.hawkes.generate_next_arrival()
         else:

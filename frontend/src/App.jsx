@@ -9,7 +9,8 @@ import {
   Play, Pause, Zap, ShieldAlert, BarChart3, Clock, Brain, 
   TrendingUp, AlertTriangle, Cpu, Terminal, Layers, 
   ZapOff, Globe, Database, ShieldCheck, Info, Radio, 
-  Zap as ZapIcon, Fingerprint, Gauge, Crosshair
+  Zap as ZapIcon, Fingerprint, Gauge, Crosshair, FlaskConical,
+  CheckCircle2, ChevronRight, SlidersHorizontal
 } from 'lucide-react';
 
 const API_BASE = `http://${window.location.hostname}:8000`;
@@ -61,6 +62,7 @@ function App() {
   const [regime, setRegime] = useState('LOW');
   const [autoStep, setAutoStep] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [strategyParams, setStrategyParams] = useState({ total_quantity: 1000, time_horizon: 100 });
 
   const fetchData = async () => {
     try {
@@ -97,6 +99,33 @@ function App() {
       setRegime(newRegime);
     } catch (err) {
       console.error("Regime Error:", err);
+    }
+  };
+
+  const toggleDataSource = async () => {
+    try {
+      const res = await axios.post(`${API_BASE}/toggle_data`);
+      setState(prev => ({ ...prev, use_real_data: res.data.use_real_data }));
+    } catch (err) {
+      console.error("Toggle Data Error:", err);
+    }
+  };
+
+  const handleSwitchStrategy = async (name) => {
+    try {
+      const res = await axios.post(`${API_BASE}/strategy/active`, { name, params: {} });
+      setState(res.data);
+    } catch (err) {
+      console.error("Strategy Switch Error:", err);
+    }
+  };
+
+  const handleUpdateParams = async (name) => {
+    try {
+      const res = await axios.post(`${API_BASE}/strategy/update`, { name, params: strategyParams });
+      setState(res.data);
+    } catch (err) {
+      console.error("Params Update Error:", err);
     }
   };
 
@@ -185,6 +214,18 @@ function App() {
             </div>
 
             <button 
+              onClick={toggleDataSource}
+              className={`group relative flex items-center px-6 py-3 rounded-2xl border font-black text-[10px] uppercase tracking-[0.2em] transition-all overflow-hidden ${
+                state.use_real_data 
+                  ? 'bg-blue-500/10 border-blue-500/50 text-blue-400' 
+                  : 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
+              }`}
+            >
+              <Database className="w-4 h-4 mr-2" />
+              {state.use_real_data ? 'Real Data: FI-2010' : 'Synthetic: Hawkes'}
+            </button>
+
+            <button 
               onClick={toggleRegime}
               className={`group relative flex items-center px-6 py-3 rounded-2xl border font-black text-[10px] uppercase tracking-[0.2em] transition-all overflow-hidden ${
                 regime === 'HIGH' 
@@ -207,8 +248,8 @@ function App() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           <Stat 
             label="Current Mid Price" 
-            value={`$${state.mid.toFixed(2)}`} 
-            subValue={`Bid: ${state.bids[0]?.price.toFixed(2)} | Ask: ${state.asks[0]?.price.toFixed(2)}`} 
+            value={`$${(state.mid || 0).toFixed(2)}`} 
+            subValue={`Bid: ${state.bids[0]?.price?.toFixed(2) || "N/A"} | Ask: ${state.asks[0]?.price?.toFixed(2) || "N/A"}`} 
             icon={TrendingUp} 
             trend={midPriceTrend}
           />
@@ -297,33 +338,57 @@ function App() {
             </Card>
           </div>
 
-          {/* Right: Intelligence Feed & Risks */}
+          {/* Right: Strategy Lab & Risks */}
           <div className="col-span-12 lg:col-span-4 space-y-8">
-            <Card title="Live Intelligence Feed" icon={Radio} badge="Alpha Signals">
+            <Card title="Strategy Lab" icon={FlaskConical} badge="Management">
               <div className="space-y-4">
-                {state.signals.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-10 opacity-20">
-                    <Radio className="w-8 h-8 mb-2 animate-pulse" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Scanning Market...</span>
-                  </div>
-                ) : (
-                  state.signals.map((sig, i) => (
-                    <div key={i} className="bg-slate-950/50 border border-slate-800/50 p-4 rounded-2xl flex items-start gap-4 group hover:border-blue-500/30 transition-all">
-                      <div className={`p-2 rounded-lg ${sig.impact === 'Bullish' ? 'bg-emerald-500/10 text-emerald-400' : sig.impact === 'Bearish' ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-500/10 text-slate-400'}`}>
-                        {sig.impact === 'Bullish' ? <ArrowUp className="w-4 h-4" /> : sig.impact === 'Bearish' ? <ArrowDown className="w-4 h-4" /> : <Info className="w-4 h-4" />}
+                {state.strategies.map((strat, i) => (
+                  <div 
+                    key={i} 
+                    onClick={() => handleSwitchStrategy(strat.name)}
+                    className={`bg-slate-950/50 border p-4 rounded-2xl cursor-pointer transition-all relative overflow-hidden group ${strat.active ? 'border-blue-500/50 bg-blue-500/5 shadow-[0_0_15px_rgba(59,130,246,0.1)]' : 'border-slate-800/50 hover:border-slate-700'}`}
+                  >
+                    {strat.active && <div className="absolute right-0 top-0 p-2 text-blue-500"><CheckCircle2 className="w-4 h-4" /></div>}
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`p-1.5 rounded-lg ${strat.active ? 'bg-blue-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                        <Brain className="w-3.5 h-3.5" />
                       </div>
-                      <div className="flex-1">
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-[10px] font-black text-white uppercase tracking-tighter">{sig.topic}</span>
-                          <span className="text-[9px] font-bold text-blue-500">{(sig.confidence * 100).toFixed(0)}% CONF</span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 leading-snug">
-                          Detected {sig.impact.toLowerCase()} pressure shift. Adjusting execution schedule.
-                        </p>
-                      </div>
+                      <span className={`text-[11px] font-black uppercase tracking-widest ${strat.active ? 'text-white' : 'text-slate-400'}`}>{strat.name}</span>
                     </div>
-                  ))
-                )}
+                    <p className="text-[10px] text-slate-500 leading-relaxed mb-3">{strat.description}</p>
+                    
+                    {strat.active && (strat.name === 'TWAP' || strat.name === 'VWAP') && (
+                      <div className="space-y-3 pt-3 border-t border-blue-500/20" onClick={e => e.stopPropagation()}>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Qty</label>
+                            <input 
+                              type="number" 
+                              value={strategyParams.total_quantity}
+                              onChange={e => setStrategyParams({...strategyParams, total_quantity: parseInt(e.target.value)})}
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white focus:border-blue-500 outline-none"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Horizon</label>
+                            <input 
+                              type="number" 
+                              value={strategyParams.time_horizon}
+                              onChange={e => setStrategyParams({...strategyParams, time_horizon: parseInt(e.target.value)})}
+                              className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-white focus:border-blue-500 outline-none"
+                            />
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => handleUpdateParams(strat.name)}
+                          className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition-colors"
+                        >
+                          Update Parameters
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </Card>
 
@@ -336,7 +401,7 @@ function App() {
                         <Cell key={`cell-${index}`} fill={entry.value > 0 ? '#10b981' : '#f43f5e'} fillOpacity={0.4} stroke={entry.value > 0 ? '#10b981' : '#f43f5e'} strokeWidth={1} />
                       ))}
                     </Bar>
-                    <Tooltip cursor={{fill: 'transparent'}} contentStyle={{backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px', fontSize: '10px'}} />
+                    <Tooltip cursor={{fill: 'transparent'}} contentStyle={{backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', fontSize: '10px'}} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -368,7 +433,7 @@ function App() {
                 </div>
               ))}
               <div className="h-10 flex items-center justify-center border-y border-slate-800/50 my-2 bg-slate-900/20">
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.5em]">SPREAD: {state.spread.toFixed(4)}</span>
+                <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.5em]">SPREAD: {state.spread ? state.spread.toFixed(4) : "0.0000"}</span>
               </div>
               {state.bids.slice(0, 5).map((bid, i) => (
                 <div key={`bid-${i}`} className="flex justify-between items-center group relative overflow-hidden h-8 px-4 rounded hover:bg-emerald-500/10 transition-all border border-transparent hover:border-emerald-500/20">
@@ -431,6 +496,37 @@ function App() {
             </div>
           </Card>
 
+        </div>
+
+        {/* Intelligence Feed Section */}
+        <div className="mt-10">
+          <Card title="Live Intelligence Feed" icon={Radio} badge="Alpha Signals">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {state.signals.length === 0 ? (
+                <div className="col-span-full flex flex-col items-center justify-center py-10 opacity-20">
+                  <Radio className="w-8 h-8 mb-2 animate-pulse" />
+                  <span className="text-[10px] font-black uppercase tracking-widest">Scanning Market...</span>
+                </div>
+              ) : (
+                state.signals.map((sig, i) => (
+                  <div key={i} className="bg-slate-950/50 border border-slate-800/50 p-4 rounded-2xl flex items-start gap-4 group hover:border-blue-500/30 transition-all">
+                    <div className={`p-2 rounded-lg ${sig.impact === 'Bullish' ? 'bg-emerald-500/10 text-emerald-400' : sig.impact === 'Bearish' ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-500/10 text-slate-400'}`}>
+                      {sig.impact === 'Bullish' ? <ArrowUp className="w-4 h-4" /> : sig.impact === 'Bearish' ? <ArrowDown className="w-4 h-4" /> : <Info className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-[10px] font-black text-white uppercase tracking-tighter">{sig.topic}</span>
+                        <span className="text-[9px] font-bold text-blue-500">{(sig.confidence * 100).toFixed(0)}% CONF</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-snug">
+                        Detected {sig.impact.toLowerCase()} pressure shift. Adjusting execution schedule.
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </Card>
         </div>
 
         {/* System Footer */}

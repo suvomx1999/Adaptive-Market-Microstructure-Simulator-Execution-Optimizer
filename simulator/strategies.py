@@ -24,6 +24,11 @@ class TWAPStrategy(ExecutionStrategy):
             
         return schedule
 
+    def get_next_trade(self, remaining_qty: int, time_left: int) -> int:
+        if time_left <= 0: return remaining_qty
+        trade_size = int(np.ceil(remaining_qty / time_left))
+        return min(trade_size, remaining_qty)
+
 class VWAPStrategy(ExecutionStrategy):
     def get_schedule(self, market_volume_profile: np.ndarray, **kwargs) -> np.ndarray:
         """
@@ -46,6 +51,12 @@ class VWAPStrategy(ExecutionStrategy):
                 schedule[idx] -= 1
                 
         return schedule
+
+    def get_next_trade(self, remaining_qty: int, time_left: int) -> int:
+        # Simplified VWAP: Assume uniform volume profile if not provided
+        # In real VWAP, this would use a rolling window of market volume
+        if time_left <= 0: return remaining_qty
+        return min(int(np.ceil(remaining_qty / time_left)), remaining_qty)
 
 class POVStrategy(ExecutionStrategy):
     def __init__(self, total_quantity: int, pov_rate: float = 0.1):
@@ -96,6 +107,23 @@ class AlmgrenChrissStrategy(ExecutionStrategy):
             schedule[-1] += diff
             
         return schedule
+
+    def get_next_trade(self, remaining_qty: int, time_left: int) -> int:
+        if time_left <= 0: return remaining_qty
+        
+        # Recalculate optimal trade for the current step
+        kappa_sq = (self.risk_aversion * (self.volatility**2)) / self.eta
+        kappa = np.sqrt(kappa_sq)
+        
+        if kappa == 0:
+            trade_size = int(np.ceil(remaining_qty / time_left))
+        else:
+            # Optimal trajectory from current remaining inventory
+            num = np.sinh(kappa * time_left) - np.sinh(kappa * (time_left - 1))
+            den = np.sinh(kappa * time_left)
+            trade_size = int(round(remaining_qty * (num / den)))
+            
+        return min(max(trade_size, 0), remaining_qty)
 
 class PredatoryHFTAgent:
     """
